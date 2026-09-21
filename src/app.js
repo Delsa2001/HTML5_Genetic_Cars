@@ -36,8 +36,8 @@
           createNormal(prop, generator)
         );
       }
-      return values;
-    },
+        return values;
+      },
     mapToShuffle(prop, normals) {
       var offset = prop.offset || 0;
       var limit = prop.limit || prop.length;
@@ -1164,6 +1164,49 @@ function createNormal(prop, generator) {
 
 
 
+  var wheelPortraits = [
+    { name: "Mahinda Rajapaksa", shortName: "MR", url: "https://upload.wikimedia.org/wikipedia/commons/3/30/The_former_President_of_Sri_Lanka%2C_Mr._Mahinda_Rajapaksa_meeting_the_Prime_Minister%2C_Shri_Narendra_Modi%2C_in_New_Delhi_on_September_12%2C_2018_%281%29_%28cropped%29.JPG" },
+    { name: "Anura Dissanayake", shortName: "AD", url: "https://upload.wikimedia.org/wikipedia/commons/b/be/Dissanayake_2026.jpg" },
+    { name: "Ranil Wickremesinghe", shortName: "RW", url: "https://upload.wikimedia.org/wikipedia/commons/7/7f/President_Dr_Muizzu_meets_Sri_Lankan_President_Ranil_Wickremesinghe_%28cropped%29.jpg" }
+  ];
+
+  for (var portraitIndex = 0; portraitIndex < wheelPortraits.length; portraitIndex++) {
+    wheelPortraits[portraitIndex].image = new Image();
+    wheelPortraits[portraitIndex].image.crossOrigin = "anonymous";
+    wheelPortraits[portraitIndex].image.src = wheelPortraits[portraitIndex].url;
+  }
+
+  function drawWheelPortrait(ctx, wheel, radius, camera, zoom) {
+    if (typeof wheel.portraitIndex !== "number") {
+      wheel.portraitIndex = Math.floor(Math.random() * wheelPortraits.length);
+    }
+
+    var portrait = wheelPortraits[wheel.portraitIndex];
+    var wheelPosition = wheel.GetPosition();
+    var screenX = 200 + (wheelPosition.x - camera.pos.x) * zoom;
+    var screenY = 200 - (wheelPosition.y - camera.pos.y) * zoom;
+    var screenRadius = radius * zoom * 0.82;
+
+    ctx.save();
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.beginPath();
+    ctx.arc(screenX, screenY, screenRadius, 0, 2 * Math.PI);
+    ctx.clip();
+
+    if (portrait.image.complete && portrait.image.naturalWidth > 0) {
+      ctx.drawImage(portrait.image, screenX - screenRadius, screenY - screenRadius, screenRadius * 2, screenRadius * 2);
+    } else {
+      ctx.fillStyle = "#263238";
+      ctx.fill();
+      ctx.fillStyle = "#FFFFFF";
+      ctx.font = "bold " + Math.max(9, screenRadius * 0.75) + "px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(portrait.shortName, screenX, screenY);
+    }
+    ctx.restore();
+  }
+
   function drawCar(car_constants, myCar, camera, ctx) {
     var camera_x = camera.pos.x;
     var zoom = camera.zoom;
@@ -1193,19 +1236,15 @@ function createNormal(prop, generator) {
         var color = Math.round(255 - (255 * (f.m_density - wheelMinDensity)) / wheelDensityRange).toString();
         var rgbcolor = "rgb(" + color + "," + color + "," + color + ")";
         cw_drawCircle(ctx, b, s.m_p, s.m_radius, b.m_sweep.a, rgbcolor);
+        drawWheelPortrait(ctx, b, s.m_radius, camera, zoom);
       }
     }
 
-    if (myCar.is_elite) {
-      ctx.strokeStyle = "#3F72AF";
-      ctx.fillStyle = "#DBE2EF";
-    } else {
-      ctx.strokeStyle = "#F7C873";
-      ctx.fillStyle = "#FAEBCD";
-    }
-    ctx.beginPath();
-
     var chassis = myCar.car.car.chassis;
+    var brand = carBrand(myCar.car_def.index);
+    ctx.strokeStyle = brand.outline;
+    ctx.fillStyle = brand.body;
+    ctx.beginPath();
 
     for (f = chassis.GetFixtureList(); f; f = f.m_next) {
       var cs = f.GetShape();
@@ -1213,6 +1252,95 @@ function createNormal(prop, generator) {
     }
     ctx.fill();
     ctx.stroke();
+    drawCarBrand(ctx, chassis, brand, zoom);
+  }
+
+  var carBrandLogoCache = {};
+
+  function carBrand(index) {
+    var brands = [
+      { name: "FERRARI", shortName: "F", logoColor: "20252A", body: "#C9282D", outline: "#7F151A", glass: "#8DD5E5", badge: "#F4D35E" },
+      { name: "LAMBORGHINI", shortName: "L", logoColor: "20252A", body: "#E2B832", outline: "#80620D", glass: "#263B4A", badge: "#FFFFFF" },
+      { name: "TOYOTA", shortName: "T", logoColor: "FFFFFF", body: "#DDE3E8", outline: "#65727D", glass: "#5B9DB4", badge: "#D22E35" },
+      { name: "PORSCHE", shortName: "P", logoColor: "20252A", body: "#3C78B4", outline: "#21466E", glass: "#A9D9E5", badge: "#F4D35E" }
+    ];
+    var brand = brands[Math.abs(Number(index) || 0) % brands.length];
+    brand.logo = carBrandLogoCache[brand.name];
+    if (!brand.logo) {
+      brand.logo = new Image();
+      brand.logo.onload = function () {
+        if (typeof cw_drawScreen === "function") cw_drawScreen();
+      };
+      brand.logo.src = "https://cdn.simpleicons.org/" + brand.name.toLowerCase() + "/" + brand.logoColor;
+      carBrandLogoCache[brand.name] = brand.logo;
+    }
+    return brand;
+  }
+
+  function drawCarBrand(ctx, chassis, brand, zoom) {
+    var vertices = chassis.vertex_list;
+    var minX = Infinity;
+    var maxX = -Infinity;
+    var minY = Infinity;
+    var maxY = -Infinity;
+
+    for (var i = 0; i < vertices.length; i++) {
+      minX = Math.min(minX, vertices[i].x);
+      maxX = Math.max(maxX, vertices[i].x);
+      minY = Math.min(minY, vertices[i].y);
+      maxY = Math.max(maxY, vertices[i].y);
+    }
+
+    var width = maxX - minX;
+    var height = maxY - minY;
+    var roofBottom = minY + height * 0.42;
+    var roofTop = minY + height * 0.88;
+    var sideInset = width * 0.18;
+    var badgeRadius = Math.max(0.08, Math.min(width, height) * 0.16);
+    var badgeX = minX + width * 0.58;
+    var badgeY = minY + height * 0.18;
+
+    ctx.save();
+    ctx.translate(chassis.GetPosition().x, chassis.GetPosition().y);
+    ctx.rotate(chassis.GetAngle());
+    ctx.lineWidth = 1 / zoom;
+
+    ctx.fillStyle = brand.glass;
+    ctx.strokeStyle = "rgba(28, 43, 52, 0.8)";
+    ctx.beginPath();
+    ctx.moveTo(minX + sideInset, roofBottom);
+    ctx.lineTo(minX + width * 0.36, roofTop);
+    ctx.lineTo(minX + width * 0.68, roofTop);
+    ctx.lineTo(maxX - sideInset, roofBottom);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = brand.badge;
+    ctx.strokeStyle = "#20252A";
+    ctx.beginPath();
+    ctx.arc(badgeX, badgeY, badgeRadius, 0, 2 * Math.PI);
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.save();
+    ctx.scale(1, -1);
+    var logoSize = badgeRadius * 2.1;
+    if (brand.logo.complete && brand.logo.naturalWidth > 0) {
+      ctx.drawImage(brand.logo, badgeX - logoSize / 2, -badgeY - logoSize / 2, logoSize, logoSize);
+    } else {
+      ctx.fillStyle = brand.name === "LAMBORGHINI" ? "#F5D45C" : "#20252A";
+      ctx.font = "bold " + Math.max(0.08, height * 0.18) + "px Arial";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(brand.shortName, badgeX, -badgeY);
+    }
+
+    ctx.fillStyle = "rgba(255, 255, 255, 0.72)";
+    ctx.font = "bold " + Math.max(0.06, height * 0.09) + "px Arial";
+    ctx.fillText(brand.name, minX + width * 0.29, -(minY + height * 0.2));
+    ctx.restore();
+    ctx.restore();
   }
 
 
@@ -1607,9 +1735,107 @@ function createNormal(prop, generator) {
   /* ========================================================================= */
   /* ==== Drawing ============================================================ */
 
+  var decorativeBirds = [
+    { x: 1.5, y: 5.5, size: 0.55 },
+    { x: 5, y: 6.2, size: 0.42 },
+    { x: 9, y: 5.1, size: 0.65 },
+    { x: 14, y: 6.4, size: 0.48 },
+    { x: 20, y: 5.6, size: 0.58 },
+    { x: 27, y: 6.1, size: 0.45 }
+  ];
+
+  function drawBackgroundBirds(ctx, zoom) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(20, 30, 40, 0.9)";
+    ctx.fillStyle = "rgba(20, 30, 40, 0.9)";
+    ctx.lineWidth = Math.max(0.04, 0.1 / zoom);
+    ctx.lineCap = "round";
+
+    for (var i = 0; i < decorativeBirds.length; i++) {
+      var bird = decorativeBirds[i];
+      var wing = bird.size;
+      ctx.beginPath();
+      ctx.moveTo(bird.x - wing * 2, bird.y);
+      ctx.quadraticCurveTo(bird.x - wing, bird.y + wing * 0.8, bird.x, bird.y);
+      ctx.quadraticCurveTo(bird.x + wing, bird.y + wing * 0.8, bird.x + wing * 2, bird.y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(bird.x, bird.y - wing * 0.03, wing * 0.12, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawScreenBirds(ctx) {
+    var birds = [
+      { x: 120, y: 72, size: 18 },
+      { x: 285, y: 112, size: 13 },
+      { x: 500, y: 58, size: 22 },
+      { x: 700, y: 92, size: 15 }
+    ];
+
+    ctx.save();
+    ctx.strokeStyle = "rgba(20, 30, 40, 0.85)";
+    ctx.fillStyle = "rgba(20, 30, 40, 0.85)";
+    ctx.lineWidth = 4;
+    ctx.lineCap = "round";
+
+    for (var i = 0; i < birds.length; i++) {
+      var bird = birds[i];
+      ctx.beginPath();
+      ctx.moveTo(bird.x - bird.size * 2, bird.y);
+      ctx.quadraticCurveTo(bird.x - bird.size, bird.y - bird.size, bird.x, bird.y);
+      ctx.quadraticCurveTo(bird.x + bird.size, bird.y - bird.size, bird.x + bird.size * 2, bird.y);
+      ctx.stroke();
+      ctx.beginPath();
+      ctx.arc(bird.x, bird.y + 2, 4, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function drawSunsetBackground(ctx) {
+    var sky = ctx.createLinearGradient(0, 0, 0, canvas.height);
+    sky.addColorStop(0, "#17243D");
+    sky.addColorStop(0.48, "#8E4F6B");
+    sky.addColorStop(0.78, "#E58A5A");
+    sky.addColorStop(1, "#F4C977");
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    var sunX = canvas.width * 0.76;
+    var sunY = canvas.height * 0.38;
+    var glow = ctx.createRadialGradient(sunX, sunY, 8, sunX, sunY, 105);
+    glow.addColorStop(0, "rgba(255, 248, 192, 0.95)");
+    glow.addColorStop(0.35, "rgba(255, 197, 104, 0.35)");
+    glow.addColorStop(1, "rgba(255, 170, 90, 0)");
+    ctx.fillStyle = glow;
+    ctx.fillRect(sunX - 105, sunY - 105, 210, 210);
+
+    ctx.fillStyle = "#FFE9A6";
+    ctx.beginPath();
+    ctx.arc(sunX, sunY, 32, 0, 2 * Math.PI);
+    ctx.fill();
+
+    ctx.fillStyle = "rgba(35, 31, 48, 0.55)";
+    ctx.beginPath();
+    ctx.moveTo(0, canvas.height * 0.73);
+    ctx.lineTo(canvas.width * 0.14, canvas.height * 0.62);
+    ctx.lineTo(canvas.width * 0.27, canvas.height * 0.73);
+    ctx.lineTo(canvas.width * 0.42, canvas.height * 0.6);
+    ctx.lineTo(canvas.width * 0.58, canvas.height * 0.73);
+    ctx.lineTo(canvas.width * 0.74, canvas.height * 0.64);
+    ctx.lineTo(canvas.width, canvas.height * 0.73);
+    ctx.lineTo(canvas.width, canvas.height);
+    ctx.lineTo(0, canvas.height);
+    ctx.closePath();
+    ctx.fill();
+  }
+
   function cw_drawScreen() {
     var floorTiles = currentRunner.scene.floorTiles;
     ctx.clearRect(0, 0, canvas.width, canvas.height);
+    drawSunsetBackground(ctx);
     ctx.save();
     cw_setCameraPosition();
     var camera_x = camera.pos.x;
@@ -1618,9 +1844,11 @@ function createNormal(prop, generator) {
     ctx.translate(200 - (camera_x * zoom), 200 + (camera_y * zoom));
     ctx.scale(zoom, -zoom);
     cw_drawFloor(ctx, camera, floorTiles);
+    drawBackgroundBirds(ctx, zoom);
     ghost_draw_frame(ctx, ghost, camera);
     cw_drawCars();
     ctx.restore();
+    drawScreenBirds(ctx);
   }
 
   function cw_minimapCamera() {
